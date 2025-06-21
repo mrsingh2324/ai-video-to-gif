@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const multer = require('multer');
 const ffmpeg = require('fluent-ffmpeg');
@@ -10,17 +9,14 @@ const { spawn } = require('child_process');
 const winston = require('winston');
 require('dotenv').config();
 
+const authRoutes = require('./routes/authRoutes');
+
 const app = express();
 const port = 5005;
 
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// === Logger ===
+// Logging Setup
 const logDir = 'logs';
 if (!fs.existsSync(logDir)) fs.mkdirSync(logDir);
-
 const logger = winston.createLogger({
   level: 'debug',
   format: winston.format.combine(
@@ -28,12 +24,19 @@ const logger = winston.createLogger({
     winston.format.printf(({ level, message, timestamp }) => `[${timestamp}] ${level.toUpperCase()} — ${message}`)
   ),
   transports: [
+    new winston.transports.Console(),
     new winston.transports.File({ filename: path.join(logDir, 'server.log') }),
-    new winston.transports.Console()
-  ]
+  ],
 });
 
-// === Directories ===
+//Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use('/api/auth', authRoutes);
+app.use('/output', express.static('./output'));
+
+//Directories Setup
 const UPLOAD_DIR = './uploads';
 const AUDIO_DIR = './audio';
 const OUTPUT_DIR = './output';
@@ -41,7 +44,7 @@ const OUTPUT_DIR = './output';
   if (!fs.existsSync(dir)) fs.mkdirSync(dir);
 });
 
-// === Multer Setup ===
+// Multer Setup 
 const storage = multer.diskStorage({
   destination: UPLOAD_DIR,
   filename: (req, file, cb) => {
@@ -57,9 +60,8 @@ const upload = multer({
     cb(null, true);
   }
 });
-app.use('/output', express.static(OUTPUT_DIR));
 
-// === Upload & Transcribe ===
+// /api/upload 
 app.post('/api/upload', upload.single('video'), async (req, res) => {
   try {
     if (!req.file) throw new Error('No file uploaded');
@@ -115,7 +117,7 @@ app.post('/api/upload', upload.single('video'), async (req, res) => {
   }
 });
 
-// === Generate GIFs ===
+// /api/generate-clip 
 app.post('/api/generate-clip', async (req, res) => {
   try {
     const { prompt, baseName } = req.body;
@@ -125,16 +127,17 @@ app.post('/api/generate-clip', async (req, res) => {
 
     const formatted = Object.entries(structured).map(([k, v]) => `${k}: ${v}`).join('\n');
     const ollamaPrompt = `
-    You are given a video transcript with timestamps. Your task is:
-    - Return 2-3 clip objects
-    - Each clip must include start (number), end (number), and text (string)
-    - Each clip should be 3–8 seconds long
-    - Return valid JSON only: [{"start":3,"end":8,"text":"..."}]
-    
-    Transcript:
-    ${formatted}
-    Prompt: "${prompt}"
-    `;
+You are given a video transcript with timestamps. Your task is:
+- Return 2-3 clip objects
+- Each clip must include start (number), end (number), and text (string)
+- Each clip should be 3–8 seconds long
+- Return valid JSON only: [{"start":3,"end":8,"text":"..."}]
+
+Transcript:
+${formatted}
+Prompt: "${prompt}"
+`;
+
     logger.info('Sending prompt to Ollama...');
     const aiRes = await axios.post('http://localhost:11434/api/chat', {
       model: 'phi3',
@@ -147,21 +150,17 @@ app.post('/api/generate-clip', async (req, res) => {
     if (content.startsWith('```')) content = content.replace(/```json|```/g, '').trim();
 
     let clips;
-    
     try {
       const parsed = JSON.parse(content);
-
       if (Array.isArray(parsed)) {
         clips = parsed;
       } else if (Array.isArray(parsed.clips)) {
         clips = parsed.clips;
       } else if (typeof parsed === 'object' && parsed !== null) {
-        // Convert object to sorted array by key
         clips = Object.values(parsed);
       } else {
-        throw new Error('AI returned an unrecognized format');
+        throw new Error('AI returned unrecognized format');
       }
-
       logger.info(`Received ${clips.length} clip suggestions`);
     } catch (err) {
       logger.error(`❌ Failed to parse Ollama response. Raw content:\n${content}`);
@@ -169,52 +168,63 @@ app.post('/api/generate-clip', async (req, res) => {
       return res.status(500).json({ error: 'Invalid response from Ollama', detail: err.message });
     }
 
-
-    logger.info(`Received ${clips.length} clip suggestions`);
-
     const gifPaths = [];
-let gifIndex = 0;
+    let gifIndex = 0;
 
-for (let i = 0; i < clips.length && gifIndex < 3; i++) {
-  const clip = clips[i];
-
-  if (
-    typeof clip.start !== 'number' || 
-    typeof clip.end !== 'number' ||
-    isNaN(clip.start) || isNaN(clip.end) ||
-    clip.end <= clip.start
-  ) {
-    logger.warn(`⚠️ Skipping invalid clip [${i}]:`, JSON.stringify(clip));
-    continue;
-  }
-
-  const caption = (clip.text || '').replace(/[':\\]/g, '').substring(0, 50);
-  const gifPath = path.join(OUTPUT_DIR, `${baseName}_clip_${gifIndex + 1}.gif`);
-
-  await new Promise((resolve, reject) => {
-    ffmpeg(videoPath)
-      .seekInput(clip.start)
-      .duration(clip.end - clip.start)
-      .size('480x?')
-      .fps(15)
-      .format('gif')
-      .videoFilters(`drawtext=text='${caption}':fontsize=36:fontcolor=white:x=(w-text_w)/2:y=h-th-30:box=1:boxcolor=black@0.8:boxborderw=6`)
-      .on('start', cmd => logger.debug(`FFmpeg GIF: ${cmd}`))
-      .on('end', () => {
-        logger.info(`✅ GIF ${gifIndex + 1} created: ${gifPath}`);
-        resolve();
-      })
-      .on('error', err => {
-        logger.error(`GIF FFmpeg error: ${err.message}`);
-        reject(err);
-      })
-      .save(gifPath);
-  });
-
-  gifPaths.push({ filename: path.basename(gifPath), url: `/output/${path.basename(gifPath)}` });
-  gifIndex++;
-}
-
+    for (let i = 0; i < clips.length && gifIndex < 3; i++) {
+      const clip = clips[i];
+    
+      if (
+        typeof clip.start !== 'number' ||
+        typeof clip.end !== 'number' ||
+        isNaN(clip.start) ||
+        isNaN(clip.end) ||
+        clip.end <= clip.start
+      ) {
+        logger.warn(`⚠️ Skipping invalid clip [${i}]: ${JSON.stringify(clip)}`);
+        continue;
+      }
+    
+      const caption = (clip.text || '').replace(/[':\\]/g, '').substring(0, 50);
+      const gifPath = path.join(OUTPUT_DIR, `${baseName}_clip_${gifIndex + 1}.gif`);
+      const duration = (clip.end - clip.start).toFixed(2);
+    
+      await new Promise((resolve, reject) => {
+        const command = ffmpeg(videoPath)
+          .seekInput(clip.start)
+          .duration(duration)
+          .size('480x?')
+          .fps(15)
+          .format('gif')
+          .videoFilters([
+            `drawtext=text='${caption}':fontsize=28:fontcolor=white:x=(w-text_w)/2:y=h-th-40:box=1:boxcolor=black@0.6:boxborderw=4`
+          ])
+          .on('start', cmd => {
+            logger.debug(`FFmpeg GIF generation started: ${cmd}`);
+          })
+          .on('progress', progress => {
+            logger.info(`📈 Progress: ${progress.percent?.toFixed(1) || 0}%`);
+          })
+          .on('end', () => {
+            logger.info(`✅ GIF ${gifIndex + 1} created: ${gifPath}`);
+            resolve();
+          })
+          .on('error', err => {
+            logger.error(`FFmpeg error: ${err.message}`);
+            reject(err);
+          });
+    
+        command.save(gifPath);
+      });
+    
+      gifPaths.push({
+        filename: path.basename(gifPath),
+        url: `/output/${path.basename(gifPath)}`
+      });
+    
+      gifIndex++;
+    }
+    
 
     res.json({ gifs: gifPaths });
   } catch (err) {
@@ -223,7 +233,7 @@ for (let i = 0; i < clips.length && gifIndex < 3; i++) {
   }
 });
 
-// === List GIFs ===
+// /api/gifs/:baseName 
 app.get('/api/gifs/:baseName', (req, res) => {
   const { baseName } = req.params;
   const gifs = fs.readdirSync(OUTPUT_DIR)
