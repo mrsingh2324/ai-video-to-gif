@@ -23,6 +23,7 @@
     "nodemon": "^3.1.10",
     "openai": "^5.5.1",
     "server": "^1.0.41",
+    "socket.io": "^4.8.1",
     "winston": "^3.17.0",
     "ytdl-core": "^4.11.5"
   },

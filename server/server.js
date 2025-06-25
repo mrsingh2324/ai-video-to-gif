@@ -337,21 +337,22 @@ app.post('/api/generate-clip', async (req, res) => {
 
     const formatted = Object.entries(structured).map(([k, v]) => `${k}: ${v}`).join('\n');
     const promptForAI = `
-You are given a video transcript with timestamps. Your task is:
-- Return 2-3 clip objects
-- Each clip must include start (number), end (number), and text (string)
-- Each clip should be 3–8 seconds long
-- Return valid JSON only: [{"start":3,"end":8,"text":"..."}]
-- The clips should cover the entire range of topics in the transcript
-- Do not repeat any words or phrases that were already mentioned earlier in the conversation
-- Use your own judgment to determine what makes sense as a clip boundary.
-- If you don't know how to do this, just make up some random numbers between 0 and 90.
+You are given a transcript extracted from a video. Your task is to extract 2–3 short clip moments that best match the following GIF theme: "${prompt}"
 
+Instructions:
+- Use the transcript below to select clip-worthy moments that are visually interesting, funny, awkward, or emotional—based on the theme
+- Each clip must be clearly grounded in actual text (no hallucinations or invented lines)
+- Each clip must include:
+  { "start": <number>, "end": <number>, "text": "<text>" }
+- Clip duration: 3 to 8 seconds max
+- Output format: A **JSON array only**, e.g., [{"start":12.0,"end":18.2,"text":"..."}]
+- Do NOT output markdown or commentary—only return valid JSON
 
 Transcript:
 ${formatted}
-Prompt: "${prompt}"
-`;
+`
+
+
 
     logger.info('Sending prompt to AI Model...');
     const aiRes2 = await axios.post(

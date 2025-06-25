@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+// import ProgressBar from './components/ProgressBar';
+
 
 // import './App.css';
 
@@ -12,7 +14,7 @@ const server = 'http://localhost:5005';
 function App() {
   const [videoFile, setVideoFile] = useState(null);
   const [transcript, setTranscript] = useState('');
-  const [prompt, setPrompt] = useState('funny');
+  const [prompt, setPrompt] = useState('');
   const [baseName, setBaseName] = useState('');
   const [gifUrls, setGifUrls] = useState([]);
   const [status, setStatus] = useState('');
@@ -257,6 +259,14 @@ function App() {
                 />
               )}
 
+              {status && (
+                <p className={`text-sm font-medium ${status.startsWith('✅') ? 'text-green-400' : 'text-red-400'}`}>
+                  {status}
+                </p>
+              )}
+
+              {/* <ProgressBar /> */}
+
               {/* <button
                 onClick={handleUpload}
                 disabled={loading}
@@ -285,8 +295,8 @@ function App() {
 
             {transcript && (
               <div className="mt-6 space-y-4">
-                <h3 className="text-lg font-semibold">📝 Transcript</h3>
-                <div className="bg-gray-800 p-4 rounded text-sm max-h-60 overflow-x-hidden overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-950 whitespace-pre-wrap text-gray-200">
+                <h4 className="text-lg font-semibold">📝 Transcript</h4>
+                <div className="bg-gray-800 p-4 rounded text-sm max-h-40 overflow-x-hidden overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-950 whitespace-pre-wrap text-gray-200">
                   {transcript}
                 </div>
 
@@ -294,7 +304,7 @@ function App() {
                   value={prompt}
                   onChange={e => setPrompt(e.target.value)}
                   className="w-full p-2 bg-gray-800  text-white  border border-gray-600 rounded mb-2"
-                  placeholder="Prompt (e.g., funny moments, deep thoughts)"
+                  placeholder="Prompt (e.g., funny moments, deep thoughts, motivational quotes, etc.)"
                 />
                 <button
                   onClick={handleGenerateGif}
@@ -305,6 +315,7 @@ function App() {
                 </button>
               </div>
             )}
+
 
             {gifUrls.length > 0 && (
               <div className="mt-10">
