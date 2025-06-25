@@ -6,8 +6,8 @@ import axios from 'axios';
 // import './App.css';
 
 
-// const server = 'https://ai-video-to-gif.onrender.com';
-const server = 'http://localhost:5005';
+const server = 'https://ai-video-to-gif.onrender.com';
+// const server = 'http://localhost:5005';
 
 
 
