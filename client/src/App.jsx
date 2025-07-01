@@ -1,10 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 // import ProgressBar from './components/ProgressBar';
-
-
 // import './App.css';
-
 
 const server = 'https://ai-video-to-gif.onrender.com';
 // const server = 'http://localhost:5005';
@@ -71,6 +68,8 @@ function App() {
     setTranscript('');
     setGifUrls([]);
     setBaseName('');
+    setPrompt('');
+
   };
 
   const handleUpload = async () => {
@@ -301,7 +300,7 @@ function App() {
                 </div>
 
                 <input
-                  value={prompt}
+                  value={prompt || ""}
                   onChange={e => setPrompt(e.target.value)}
                   className="w-full p-2 bg-gray-800  text-white  border border-gray-600 rounded mb-2"
                   placeholder="Prompt (e.g., funny moments, deep thoughts, motivational quotes, etc.)"

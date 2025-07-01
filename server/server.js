@@ -35,21 +35,32 @@ const allowedOrigins = [
   process.env.FRONTEND_DEV,
   process.env.FRONTEND_PROD
 ];
-
 app.use(cors({
   origin: (origin, callback) => {
     logger.debug(`🌐 CORS request from: ${origin}`);
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error('❌ Not allowed by CORS'));
+    if (!origin || allowedOrigins.includes(origin.replace(/\/$/, ''))) {
+      return callback(null, true);
+    }
+    logger.warn(`❌ Blocked by CORS: ${origin}`);
+    return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
 }));
 
+
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// THEN add authRoutes
 app.use('/api/auth', authRoutes);
+
 app.use('/output', express.static('./output'));
 app.use(fileUpload());
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Credentials', true);
+  next();
+});
 
 
 // Directories Setup
@@ -78,6 +89,8 @@ const upload = multer({
 });
 
 const { exec } = require('child_process');
+
+app.get('/api/health', (req, res) => res.send('✅ Server is up!'));
 
 app.post('/api/download', async (req, res) => {
   try {
@@ -492,4 +505,5 @@ app.get('/api/gifs/:baseName', (req, res) => {
   res.json({ gifs });
 });
 
+console.log('✅ Backend started')
 app.listen(port, () => logger.info(`🚀 Server running on http://localhost:${port}`));
