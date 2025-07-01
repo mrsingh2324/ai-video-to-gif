@@ -71,26 +71,20 @@ const OUTPUT_DIR = './output';
   if (!fs.existsSync(dir)) fs.mkdirSync(dir);
 });
 
+
 // Multer Setup 
 const storage = multer.diskStorage({
   destination: UPLOAD_DIR,
   filename: (req, file, cb) => {
-    const uniqueName = `${Date.now()}-${Math.random().toString(36).substring(7)}${path.extname(file.originalname)}`;
-    cb(null, uniqueName);
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}${path.extname(file.originalname)}`;
+    cb(null, unique);
   }
 });
-const upload = multer({
-  storage,
-  limits: { fileSize: 50 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (!file.mimetype.match(/video\/(mp4|quicktime)/)) return cb(new Error('Invalid file type'));
-    cb(null, true);
-  }
-});
+const upload = multer({ storage });
+
 
 const { exec } = require('child_process');
 
-app.get('/api/health', (req, res) => res.send('✅ Server is up!'));
 
 app.post('/api/download', async (req, res) => {
   try {
@@ -248,17 +242,13 @@ app.post('/api/transcribe', async (req, res) => {
     if (!file) return res.status(400).json({ error: 'No file uploaded' });
 
     const videoPath = path.join(UPLOAD_DIR, file.name);
-    const baseName = path.basename(videoPath, path.extname(videoPath));
-    const ext = path.extname(videoPath);
+    const baseName = path.parse(file.name).name;
+    const ext = path.extname(file.name);
     const audioPath = path.join(AUDIO_DIR, `${baseName}.mp3`);
 
-    // Save the uploaded video
     await file.mv(videoPath);
-
-    // Save extension
     fs.writeFileSync(path.join(AUDIO_DIR, `${baseName}.ext.txt`), ext);
 
-    // Extract audio from video using ffmpeg
     await new Promise((resolve, reject) => {
       ffmpeg(videoPath)
         .noVideo()
@@ -268,75 +258,51 @@ app.post('/api/transcribe', async (req, res) => {
         .save(audioPath);
     });
 
-    // Upload audio to AssemblyAI
-    const uploadRes = await axios({
-      method: 'post',
-      url: 'https://api.assemblyai.com/v2/upload',
-      headers: {
-        authorization: process.env.ASSEMBLY_API_KEY,
-        'transfer-encoding': 'chunked',
-      },
-      data: fs.createReadStream(audioPath),
-    });
-
-    const uploadUrl = uploadRes.data.upload_url;
-
-    // Request transcription
-    const transcribeRes = await axios.post(
-      'https://api.assemblyai.com/v2/transcript',
+    const uploadRes = await axios.post(
+      'https://api.assemblyai.com/v2/upload',
+      fs.createReadStream(audioPath),
       {
-        audio_url: uploadUrl,
-        punctuate: true,
-        format_text: true,
-        speaker_labels: false,
-        auto_chapters: false,
-      },
-      {
-        headers: { authorization: process.env.ASSEMBLY_API_KEY },
+        headers: {
+          authorization: process.env.ASSEMBLY_API_KEY,
+          'transfer-encoding': 'chunked',
+        }
       }
     );
 
-    const transcriptId = transcribeRes.data.id;
+    const { upload_url } = uploadRes.data;
+    const transcribeRes = await axios.post(
+      'https://api.assemblyai.com/v2/transcript',
+      { audio_url: upload_url },
+      { headers: { authorization: process.env.ASSEMBLY_API_KEY } }
+    );
 
-    // Polling
-    let status = 'queued';
-    let transcriptText = '';
-    let words = [];
-    while (status !== 'completed' && status !== 'error') {
+    const { id: transcriptId } = transcribeRes.data;
+    let status = 'queued', transcript = '', words = [];
+
+    while (status !== 'completed') {
       await new Promise(r => setTimeout(r, 4000));
-      const pollRes = await axios.get(
+      const poll = await axios.get(
         `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
-        {
-          headers: { authorization: process.env.ASSEMBLY_API_KEY },
-        }
+        { headers: { authorization: process.env.ASSEMBLY_API_KEY } }
       );
-      status = pollRes.data.status;
+      status = poll.data.status;
       if (status === 'completed') {
-        transcriptText = pollRes.data.text;
-        words = pollRes.data.words || []; // Contains timestamps
+        transcript = poll.data.text;
+        words = poll.data.words || [];
       }
     }
 
-    if (status === 'error') {
-      return res.status(500).json({ error: 'Transcription failed' });
-    }
-
-    // Structure timestamp data like Whisper does
     const segments = {};
-    words.forEach(word => {
-      const start = (word.start / 1000).toFixed(2);
-      const end = (word.end / 1000).toFixed(2);
-      const key = `${start}-${end}`;
-      if (!segments[key]) segments[key] = '';
-      segments[key] += `${word.text} `;
-    });
-
+    for (const w of words) {
+      const k = `${(w.start/1000).toFixed(2)}-${(w.end/1000).toFixed(2)}`;
+      segments[k] = (segments[k] || '') + `${w.text} `;
+    }
     fs.writeFileSync(path.join(AUDIO_DIR, `${baseName}.timestamps.json`), JSON.stringify(segments, null, 2));
 
-    res.json({ transcript: transcriptText, baseName });
+    res.json({ transcript, baseName });
   } catch (err) {
-    console.error('❌ Transcription error:', err.stack);
-    res.status(500).json({ error: 'Failed to transcribe video', detail: err.message });
+    logger.error('❌ Transcription error:', err.stack);
+    res.status(500).json({ error: 'Transcription failed', detail: err.message });
   }
 });
 
@@ -504,6 +470,9 @@ app.get('/api/gifs/:baseName', (req, res) => {
   logger.info(`Listing ${gifs.length} GIFs for ${baseName}`);
   res.json({ gifs });
 });
+
+app.get('/api/health', (req, res) => res.send('✅ Server is up!'));
+
 
 console.log('✅ Backend started')
 app.listen(port, () => logger.info(`🚀 Server running on http://localhost:${port}`));

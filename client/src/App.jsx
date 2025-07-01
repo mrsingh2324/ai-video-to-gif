@@ -3,8 +3,8 @@ import axios from 'axios';
 // import ProgressBar from './components/ProgressBar';
 // import './App.css';
 
-const server = 'https://ai-video-to-gif.onrender.com';
-// const server = 'http://localhost:5005';
+// const server = 'https://ai-video-to-gif.onrender.com';
+const server = 'http://localhost:5005';
 
 
 
@@ -73,6 +73,9 @@ function App() {
   };
 
   const handleUpload = async () => {
+    if (useYoutube && !youtubeUrl) return alert('Paste a YouTube link first');
+    if (!useYoutube && !videoFile) return alert('Upload a video first');
+  
     setTranscript('');
     setGifUrls([]);
     setBaseName('');
@@ -84,7 +87,9 @@ function App() {
 
       if (useYoutube) {
         if (!youtubeUrl) return alert('Paste a YouTube link first');
-        res = await axios.post(`${server}/api/download`, { url: youtubeUrl });
+        res = await axios.post(`${server}/api/download`, { url: youtubeUrl }, {
+          headers: { 'Content-Type': 'application/json' }
+        });
       } else {
         if (!videoFile) return alert('Upload a video first');
         const formData = new FormData();
@@ -93,6 +98,7 @@ function App() {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
       }
+      
 
       setTranscript(res.data.transcript);
       setBaseName(res.data.baseName || videoFile.name.split('.')[0]);
